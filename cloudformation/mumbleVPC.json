@@ -1,0 +1,284 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "VPC environment",
+  "Parameters": {
+    "stackname": {
+      "Description": "the name of the stack (e.g. mumble)",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "255"
+    },
+    "iprange": {
+      "Description": "the second part of the CIDR block of the VPC",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "3"
+    }
+  },
+  "Resources": {
+    "VPC": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": {
+        "EnableDnsSupport": "true",
+        "EnableDnsHostnames": "true",
+        "CidrBlock": { "Fn::Join": [ "", [ "10.",{"Ref": "iprange"}, ".0.0/16" ] ] },
+        "Tags": [         
+          {
+            "Key": "Name",
+            "Value": { "Ref": "stackname" }
+          }
+        ]
+      }
+    }, 
+	"MumbleSubNet": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": { "Ref": "VPC" },
+        "AvailabilityZone": { "Fn::Join": [ "", [ {"Ref": "AWS::Region"}, "a" ] ] },
+        "CidrBlock": { "Fn::Join": [ "", [ "10.", {"Ref": "iprange"}, ".0.0/24" ] ] },
+        "Tags": [
+          {
+            "Key": "Stack",
+            "Value": {"Ref": "stackname"}
+          },
+          {
+            "Key": "Name",
+            "Value": {"Fn::Join": [ "", [{"Ref": "stackname"}, "-sub-a"] ] }
+          }
+        ]
+      }
+    },
+	"InternetGateway": {
+      "Type": "AWS::EC2::InternetGateway",
+      "Properties": {
+		"Tags": [
+          {
+            "Key": "Stack",
+            "Value": {"Ref": "stackname"}
+          },
+          {
+            "Key": "Name",
+            "Value": {"Fn::Join": [ "", [{"Ref": "stackname"}, "-internetgateway"] ] }
+          }
+        ]
+      }
+    },
+	"GatewayToInternet": {
+      "Type": "AWS::EC2::VPCGatewayAttachment",
+      "Properties": {
+        "VpcId": { "Ref": "VPC" },
+        "InternetGatewayId": { "Ref": "InternetGateway" }
+      }
+    },
+	"RouteTableWeb": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+		"VpcId": { "Ref": "VPC" },
+		"Tags": [
+          {
+            "Key": "Stack",
+            "Value": {"Ref": "stackname"}
+          },
+          {
+            "Key": "Name",
+            "Value": {"Fn::Join": [ "", [{"Ref": "stackname"}, "-rtb-web"] ] }
+          }
+        ]
+	  }
+	},
+	"InternetRouteWeb": {
+      "Type": "AWS::EC2::Route",
+      "DependsOn": "GatewayToInternet",
+      "Properties": {
+        "RouteTableId": { "Ref": "RouteTableWeb" },
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "GatewayId": { "Ref": "InternetGateway" }
+      }
+    },
+	"RouteTableAssociationMumbleSubNet": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": { "Ref": "MumbleSubNet" },
+        "RouteTableId": { "Ref": "RouteTableWeb" }
+      }
+    },
+	"NetworkAclWeb": {
+      "Type": "AWS::EC2::NetworkAcl",
+      "Properties": {
+        "VpcId": { "Ref": "VPC" },
+        "Tags": [
+          {
+            "Key": "Stack",
+            "Value": {"Ref": "stackname"}
+          },
+          {
+            "Key": "Name",
+            "Value": {"Fn::Join": [ "", [{"Ref": "stackname"}, "-rtb-web"] ] }
+          }
+        ]
+      }
+    },
+	"NetworkAclSSH": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "NetworkAclId": { "Ref": "NetworkAclWeb" },
+        "RuleNumber": "200",
+        "Protocol": "6",
+        "RuleAction": "allow",
+        "Egress": "false",
+        "CidrBlock": "0.0.0.0/0",
+        "PortRange": {
+          "From": "22",
+          "To": "22"
+        }
+      }
+    },
+	"NetworkAceWebHighPortsTCP": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "NetworkAclId": { "Ref": "NetworkAclWeb" },
+        "RuleNumber": "410",
+        "Protocol": "6",
+        "RuleAction": "allow",
+        "Egress": "false",
+        "CidrBlock": "0.0.0.0/0",
+        "PortRange": {
+          "From": "1024",
+          "To": "65535"
+        }
+      }
+    },
+    "NetworkAceWebHighPortsUDP": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "NetworkAclId": { "Ref": "NetworkAclWeb" },
+        "RuleNumber": "420",
+        "Protocol": "17",
+        "RuleAction": "allow",
+        "Egress": "false",
+        "CidrBlock": "0.0.0.0/0",
+        "PortRange": {
+          "From": "1024",
+          "To": "65535"
+        }
+      }
+    },
+	"MumblePortTCP": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "NetworkAclId": { "Ref": "NetworkAclWeb" },
+        "RuleNumber": "510",
+        "Protocol": "6",
+        "RuleAction": "allow",
+        "Egress": "false",
+        "CidrBlock": "0.0.0.0/0",
+        "PortRange": {
+          "From": "64738",
+          "To": "64738"
+        }
+      }
+    },
+    "MumblePortUDP": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "NetworkAclId": { "Ref": "NetworkAclWeb" },
+        "RuleNumber": "520",
+        "Protocol": "17",
+        "RuleAction": "allow",
+        "Egress": "false",
+        "CidrBlock": "0.0.0.0/0",
+        "PortRange": {
+          "From": "64738",
+          "To": "64738"
+        }
+      }
+    },
+	 "NetworkAceWebEgress": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "NetworkAclId": { "Ref": "NetworkAclWeb" },
+        "RuleNumber": "900",
+        "Protocol": "-1",
+        "RuleAction": "allow",
+        "Egress": "true",
+        "CidrBlock": "0.0.0.0/0",
+        "PortRange": {
+          "From": "0",
+          "To": "65535"
+        }
+      }
+    },
+	"NetworkAclAssociationWeb": {
+      "Type": "AWS::EC2::SubnetNetworkAclAssociation",
+      "Properties": {
+        "SubnetId": {"Ref": "MumbleSubNet"},
+        "NetworkAclId": {"Ref": "NetworkAclWeb"}
+      }
+    },
+	"MumbleSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "SecurityGroup for mumble service",
+        "VpcId": { "Ref": "VPC" },
+        "Tags": [
+          {
+            "Key": "Stack",
+            "Value": {"Ref": "stackname"}
+          },
+          {
+            "Key": "Name",
+            "Value": {"Fn::Join": [ "", [{"Ref": "stackname"}, "-sg"] ] }
+          }
+        ],
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "22",
+            "ToPort": "22",
+            "CidrIp": "0.0.0.0/0"
+          },
+		  {
+            "IpProtocol": "tcp",
+            "FromPort": "64738",
+            "ToPort": "64738",
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "icmp",
+            "FromPort": "-1",
+            "ToPort": "-1",
+            "CidrIp": "0.0.0.0/0"
+          }
+        ]
+      }
+    },
+	"S3MumbleData": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketName": { "Fn::Join": [ "", [ "mumble-db-", { "Ref": "stackname" } ] ] }
+      }
+    }
+  },
+  "Outputs": {
+	"vpc": {
+	  "Description": "The VPC",
+	  "Value": { "Ref": "VPC" }
+	},
+	"sgmumble": {
+	  "Description": "The mumble security group used by the members",
+	  "Value": { "Ref": "MumbleSecurityGroup" }
+	},
+	"mumbleSubnet": {
+	  "Description": "The MumbleSubNet",
+	  "Value": { "Ref": "MumbleSubNet" }
+	},
+	"rt": {
+	  "Description": "The routing table",
+	  "Value": { "Ref": "RouteTableWeb" }
+	},
+	"s3dbbucket": {
+	  "Description": "The s3 db bucket",
+	  "Value": { "Ref": "S3MumbleData" }
+	}
+  }
+}

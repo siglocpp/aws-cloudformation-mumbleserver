@@ -1,0 +1,45 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "mumble stack",
+  "Parameters": {
+    "stackname": {
+      "Description": "the name of the stack (e.g. mumble)",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "255"
+    },
+    "iprange": {
+      "Description": "the second part of the CIDR block of the VPC",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "3"
+    }
+  },
+  "Mappings": {},
+  "Resources": {
+    "mumbleVPC": {
+      "Type": "AWS::CloudFormation::Stack",
+      "Properties": {
+        "Parameters": {
+          "stackname": { "Ref": "stackname" },
+          "iprange": { "Ref": "iprange" }
+        },
+        "TemplateURL": "https://s3-eu-west-1.amazonaws.com/cf-mumble/cloudformation/mumbleVPC.json"
+      }
+    },
+	"mumbleMaching": {
+      "Type": "AWS::CloudFormation::Stack",
+      "Properties": {
+        "Parameters": {
+          "stackname": { "Ref": "stackname" },
+          "iprange": { "Ref": "iprange" },
+          "vpc": { "Fn::GetAtt": [ "mumbleVPC", "Outputs.vpc" ] },
+          "sgmumble": { "Fn::GetAtt": [ "mumbleVPC", "Outputs.sgmumble" ] },
+		  "mumbleSubnet": { "Fn::GetAtt": [ "mumbleVPC", "Outputs.mumbleSubnet" ] },
+		  "s3dbbucket": { "Fn::GetAtt": [ "mumbleVPC", "Outputs.s3dbbucket" ] }
+        },
+        "TemplateURL": "https://s3-eu-west-1.amazonaws.com/cf-mumble/cloudformation/mumbleMachine.json"
+      }
+    }
+  }
+}

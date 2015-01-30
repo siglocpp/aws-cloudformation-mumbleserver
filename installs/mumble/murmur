@@ -1,0 +1,128 @@
+#!/bin/bash
+#
+#       /etc/rc.d/init.d/mumble-server
+#
+#       starts the murmur voip server
+#
+# chkconfig: - 95 80
+# description: murmur is the server for the Mumble voip suite aimed at gamers
+# processname: murmur
+# config: /etc/mumble-server/mumble-server.ini
+# pidfile: /var/run/mumble-server/mumble-server.pid
+
+. /etc/rc.d/init.d/functions
+
+rundir=/usr/local/murmur/
+prog=murmur.x86
+progname=murmur
+pidfile=/var/run/murmur/murmur.pid
+INIFILE=/etc/murmur.ini
+MURMUR_USER=murmur
+MURMUR_GROUP=murmur
+MURMUR_OPTS="-ini $INIFILE"
+
+if [ -z $gracetime ]; then
+        gracetime=10;
+fi
+
+do_start() {
+        echo -n "Starting mumble-server: "
+        if [ -f $pidfile ]; then
+                pid=`cat $pidfile`
+                res=`ps --pid $pid 2> /dev/null | grep -c $pid 2> /dev/null`
+
+                if [ $res -eq '0' ]; then
+                        rm -f $pidfile > /dev/null
+                else
+                        echo "$prog already running with PID $pid"
+                        exit 1;
+                fi
+        fi
+
+        cd $rundir
+        ./$prog $MURMUR_OPTS
+
+        # wait for process to start
+        sleep 4
+
+        pid=`cat $pidfile`
+        if [ `ps --pid $pid 2> /dev/null | grep -c $pid 2> /dev/null` -eq '0' ]; then
+                echo "Process did not start!"
+                rm -f $pidfile
+                exit 1;
+        fi
+
+        echo "Started with PID: $pid"
+
+}
+
+do_stop() {
+        if [ -f $pidfile ]; then
+                pid=`cat $pidfile`
+                echo "Stopping $pid"
+
+                kill -s TERM $pid > /dev/null
+                rm -f $pidfile
+
+                count=0;
+                until [ `ps --pid $pid 2> /dev/null | grep -c $pid 2> /dev/null` -eq '0' ] || [ $count -gt $gracetime ]
+                do
+                        sleep 1
+                       let count=$count+1;
+                done
+
+                if [ $count -gt $gracetime ]; then
+                        echo "Force stop of $progname"
+                        kill -9 $pid
+                fi
+
+                echo "Stopped"
+        fi
+
+}
+
+do_status() {
+
+        if [ -f $pidfile ]
+    then
+        pid=`cat $pidfile`
+        res=`ps --pid $pid 2> /dev/null | grep -c $pid 2> /dev/null`
+        if [ $res -eq '0' ]
+        then
+            rm -f $pidfile > /dev/null
+            echo "$progname is not running"
+            exit 1;
+        else
+            echo "$progname is running with PID $pid"
+            exit 0;
+        fi
+    else
+        echo "$progname is not running"
+        exit 3;
+    fi
+
+}
+
+case "$1" in
+start)  echo "Starting $progname"
+        do_start
+        ;;
+stop)  echo "Stopping $progname"
+        do_stop
+        ;;
+status)
+        do_status
+        ;;
+signal)
+        do_signal
+        ;;
+restart)
+                do_stop
+                do_start
+                ;;
+*)      echo "Usage: service $progname start|stop|restart|status|signal"
+        exit 1
+        ;;
+esac
+exit 0
+

@@ -1,0 +1,177 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "mumble machine",
+  "Parameters": {
+    "stackname": {
+      "Description": "the name of the stack (e.g. mumble)",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "255"
+    },
+    "iprange": {
+      "Description": "the second part of the CIDR block of the VPC",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "3"
+    },
+	"vpc": {
+      "Description": "the id of the VPC",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "255"
+    },
+    "mumbleSubnet": {
+      "Description": "the id of the mumbleSubnet",
+      "Type": "CommaDelimitedList"
+    },
+	"sgmumble": {
+      "Description": "the id of the mumble security group",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "255"
+    },
+    "s3dbbucket": {
+      "Description": "the s3 bucket name containing the mumble db",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "255"
+    }
+  },
+  "Mappings": {
+    "RegionMap": {
+      "eu-west-1": {
+        "ami": "ami-9c7ad8eb"
+      }
+    }
+  },
+  "Resources": {
+	"IAMRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": [ "ec2.amazonaws.com" ] },
+              "Action": [ "sts:AssumeRole" ]
+            }
+          ]
+        },
+        "Path": "/",
+        "Policies": [
+          {
+            "PolicyName": { "Fn::Join": [ "", [ {"Ref": "stackname"}, "-core" ] ] },
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Action": [ "s3:GetObject", "s3:ListBucket", "s3:PutObject"],
+                  "Sid": "Stmt1372839853001",
+                  "Resource": [
+                    "arn:aws:s3:::cf-mumble",
+                    "arn:aws:s3:::cf-mumble/*",
+                    { "Fn::Join": [ "", ["arn:aws:s3:::", {"Ref": "s3dbbucket"} ] ] },
+					{ "Fn::Join": [ "", ["arn:aws:s3:::", {"Ref": "s3dbbucket"}, "/*" ] ] }
+                  ],
+                  "Effect": "Allow"
+                },
+                {
+                  "Action": [
+                    "route53:ChangeResourceRecordSets",
+                    "route53:GetHostedZone",
+                    "route53:ListHostedZones",
+                    "route53:ListResourceRecordSets"
+                  ],
+                  "Sid": "Stmt1380014474000",
+                  "Resource": [ "*" ],
+                  "Effect": "Allow"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+	"IAMInstanceProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Path": "/",
+        "Roles": [ { "Ref": "IAMRole" } ]
+      }
+    },
+	"LaunchConfig": {
+	  "Type": "AWS::AutoScaling::LaunchConfiguration",
+      "Properties": {
+        "AssociatePublicIpAddress": true,
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": "/dev/xvda",
+            "Ebs": {
+              "DeleteOnTermination": true,
+              "VolumeType": "gp2",
+              "VolumeSize": "8"
+            }
+          }
+        ],
+        "EbsOptimized": false,
+        "InstanceMonitoring": false,
+        "IamInstanceProfile": {
+          "Ref": "IAMInstanceProfile"
+        },
+        "ImageId": {
+          "Fn::FindInMap": [ "RegionMap", { "Ref": "AWS::Region" }, "ami" ]
+        },
+		"InstanceType": "t1.micro",
+		"SecurityGroups": [ { "Ref": "sgmumble" } ],
+		"UserData": {
+		  "Fn::Base64": { "Fn::Join": [ "\n", [
+			"#!/bin/bash",
+            "",
+            "#update aws cli, because we need >1.5.0",
+            "yum clean all",
+            "yum update -y aws*",
+            "",
+			"aws s3 cp --region eu-west-1 s3://cf-mumble/cloudinit/amzn-base.sh - | bash",
+			"",
+			{ "Fn::Join": [ "", [ "export BUCKETNAME=", {"Ref": "s3dbbucket"} ] ] },
+			"aws s3 cp --region eu-west-1 s3://cf-mumble/cloudinit/noip.sh - | bash",
+            "echo $?",
+			{ "Fn::Join": [ "", [ "export BUCKETNAME=", {"Ref": "s3dbbucket"} ] ] },
+			"aws s3 cp --region eu-west-1 s3://cf-mumble/cloudinit/mumble.sh - | bash",
+			""
+		  ]]}
+		}
+	  }
+	},
+	"AutoScalingGroup": {
+      "Type": "AWS::AutoScaling::AutoScalingGroup",
+      "Properties": {
+        "AvailabilityZones": [ 
+		  { "Fn::Join": [ "", [ {"Ref": "AWS::Region"}, "a" ] ] }
+        ],
+        "LoadBalancerNames": [],
+        "DesiredCapacity": "1",
+        "HealthCheckGracePeriod": 300,
+        "HealthCheckType": "EC2",
+        "LaunchConfigurationName": { "Ref": "LaunchConfig" },
+        "MaxSize": "1",
+        "MinSize": "1",
+        "Tags": [
+          {
+            "Key": "Stackname",
+            "Value": { "Ref": "stackname" },
+            "PropagateAtLaunch": "true"
+          },
+          {
+            "Key": "Name",
+            "Value": { "Fn::Join": [ "", [ {"Ref": "stackname"}, "-server" ] ] },
+            "PropagateAtLaunch": "true"
+          }
+        ],
+        "VPCZoneIdentifier": { "Ref": "mumbleSubnet" }
+      }
+    }
+  },
+  "Outputs": {}
+}
